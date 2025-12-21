@@ -853,6 +853,24 @@ function pumpAppendQueue() {
 
 async function playMseIfNeeded() {
   if (!mseAudioEl) return;
+  
+  // Recovery from underrun: if audio ended but we still have data coming, restart
+  if (mseAudioEl.ended && (streamingSentence || prefetchSentence || ttsQueue.length > 0 || appendQueue.length > 0)) {
+    console.log('MSE underrun recovery: audio ended prematurely, restarting playback');
+    try {
+      // Seek to current position to "un-end" the element
+      if (mseAudioEl.buffered.length > 0) {
+        const bufferedEnd = mseAudioEl.buffered.end(mseAudioEl.buffered.length - 1);
+        mseAudioEl.currentTime = Math.max(0, bufferedEnd - 0.1);
+      }
+      await mseAudioEl.play();
+    } catch (e) {
+      console.warn('MSE underrun recovery failed:', e);
+    }
+    return;
+  }
+  
+  // Normal case: if paused, play
   if (mseAudioEl.paused) {
     try {
       await mseAudioEl.play();
