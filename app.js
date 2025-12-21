@@ -100,12 +100,12 @@ async function sendMessageToDaemon(text, assistantMsg) {
                 daemonSessionId = data.session_id;
                 localStorage.setItem('daemonSessionId', daemonSessionId);
               }
-              assistantMsg.classList.remove('streaming');
+              if (assistantMsg.classList.contains('streaming')) { assistantMsg.classList.remove('streaming'); if (!assistantMsg.querySelector('.replay-btn')) addReplayButton(assistantMsg); }
             }
 
             // Done
             if (data.type === 'done' || data.done) {
-              assistantMsg.classList.remove('streaming');
+              if (assistantMsg.classList.contains('streaming')) { assistantMsg.classList.remove('streaming'); if (!assistantMsg.querySelector('.replay-btn')) addReplayButton(assistantMsg); }
             }
           } catch (e) {
             // Skip invalid JSON
@@ -516,7 +516,7 @@ async function sendMessage() {
     }
 
     // Finalize
-    assistantMsg.classList.remove('streaming');
+    if (assistantMsg.classList.contains('streaming')) { assistantMsg.classList.remove('streaming'); if (!assistantMsg.querySelector('.replay-btn')) addReplayButton(assistantMsg); }
     conversationHistory.push({ role: 'assistant', content: fullResponse });
     saveHistory();
 
@@ -550,9 +550,112 @@ function addMessage(content, role, streaming = false) {
   const msg = document.createElement('div');
   msg.className = `message ${role}${streaming ? ' streaming' : ''}`;
   msg.textContent = content;
+  
+  // Add replay button for assistant messages (non-streaming)
+  if (role === 'assistant' && !streaming) {
+    addReplayButton(msg);
+  }
+  
   chat.appendChild(msg);
   scrollToBottom();
   return msg;
+}
+
+// Add replay button to a message
+function addReplayButton(msgElement) {
+  const btn = document.createElement('button');
+  btn.className = 'replay-btn';
+  btn.innerHTML = '<svg width="9" height="11" viewBox="0 0 9 11"><path d="M0 0 L9 5.5 L0 11 Z" fill="currentColor"/></svg>';
+  btn.title = 'Replay';
+  btn.dataset.playing = 'false';
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    replayMessage(msgElement, btn);
+  };
+  msgElement.appendChild(btn);
+}
+
+// Replay a message's audio
+let replayAudio = null;
+let currentReplayBtn = null;
+
+function stopReplay() {
+  if (replayAudio) {
+    replayAudio.pause();
+    replayAudio = null;
+  }
+  if (currentReplayBtn) {
+    currentReplayBtn.classList.remove('playing');
+    currentReplayBtn.innerHTML = '<svg width="9" height="11" viewBox="0 0 9 11"><path d="M0 0 L9 5.5 L0 11 Z" fill="currentColor"/></svg>';
+    currentReplayBtn.dataset.playing = 'false';
+    currentReplayBtn = null;
+  }
+}
+
+async function replayMessage(msgElement, btn) {
+  // If this button is already playing, stop it
+  if (btn.dataset.playing === 'true') {
+    stopReplay();
+    return;
+  }
+  
+  // Stop any other playing audio
+  stopReplay();
+  
+  // Get text content (excluding the button)
+  let text = '';
+  for (const node of msgElement.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent;
+    }
+  }
+  text = text.trim();
+  
+  if (!text) return;
+  
+  // Visual feedback - show X to stop
+  btn.classList.add('playing');
+  btn.innerHTML = '<svg width="9" height="9" viewBox="0 0 9 9"><rect width="9" height="9" fill="currentColor"/></svg>';
+  btn.dataset.playing = 'true';
+  currentReplayBtn = btn;
+  
+  try {
+    const response = await fetch(VPS_TTS_URL_FULL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': VPS_API_KEY
+      },
+      body: JSON.stringify({
+        text: cleanTextForSpeech(text),
+        voice: TTS_VOICE,
+        rate: TTS_RATE,
+        pitch: TTS_PITCH
+      })
+    });
+    
+    if (!response.ok) throw new Error('TTS failed: ' + response.status);
+    
+    const audioBlob = await response.blob();
+    const audioUrl = URL.createObjectURL(audioBlob);
+    replayAudio = new Audio(audioUrl);
+    
+    replayAudio.onended = () => {
+      URL.revokeObjectURL(audioUrl);
+      stopReplay();
+    };
+    
+    replayAudio.onerror = (e) => {
+      console.error('Audio error:', e);
+      URL.revokeObjectURL(audioUrl);
+      stopReplay();
+    };
+    
+    await replayAudio.play();
+  } catch (e) {
+    console.error('Replay failed:', e);
+    stopReplay();
+  }
 }
 
 // =======================
