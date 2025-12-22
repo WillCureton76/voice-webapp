@@ -34,6 +34,7 @@ async function sendMessageToDaemon(text, assistantMsg) {
   
   // Mark that we're waiting for a response
   responseComplete = false;
+  apiStreamComplete = false;
 
   let fullReply = '';
 
@@ -120,9 +121,12 @@ async function sendMessageToDaemon(text, assistantMsg) {
     // TTS already streamed by sentence above, just flush any remaining buffer
     if (autoSpeakCheckbox.checked) {
       flushTtsBuffer();
+      apiStreamComplete = true;
+      wakeQueuePump(); // Wake queue processor to process final items and exit
     } else {
       // No TTS, so response is complete now
       responseComplete = true;
+      apiStreamComplete = true;
     }
 
     setStatus('Ready');
@@ -130,6 +134,7 @@ async function sendMessageToDaemon(text, assistantMsg) {
   } catch (error) {
     console.error('Daemon error:', error);
     responseComplete = true; // Reset on error
+    apiStreamComplete = true;
     assistantMsg.textContent = 'Daemon error: ' + error.message;
     assistantMsg.classList.add('error');
     setStatus('Daemon error', 'error');
@@ -155,6 +160,7 @@ let ttsBuffer = ''; // Buffer for sentence-level TTS streaming
 // Continuous mode: only trigger recording when response is FULLY complete
 let responseComplete = true; // true when not waiting for API response
 let userCancelledListening = false; // true when user manually tapped to stop listening
+let apiStreamComplete = true; // true when API stream has finished (text may still be in TTS queue)
 
 // DOM Elements
 const chat = document.getElementById('chat');
@@ -418,6 +424,7 @@ async function sendMessage() {
 
   // Mark that we're waiting for a response (prevents continuous mode triggering mid-response)
   responseComplete = false;
+  apiStreamComplete = false;
 
   // Cancel any ongoing request
   if (abortController) {
@@ -522,7 +529,9 @@ async function sendMessage() {
 
     // Flush any remaining TTS buffer
     flushTtsBuffer();
-    
+    apiStreamComplete = true;
+    wakeQueuePump(); // Wake queue processor to process final items and exit
+
     // If auto-speak is off, response is complete now
     if (!autoSpeakCheckbox.checked) {
       responseComplete = true;
@@ -539,6 +548,7 @@ async function sendMessage() {
       setStatus('Error occurred', 'error');
     }
     responseComplete = true; // Reset on error/cancel
+    apiStreamComplete = true;
   } finally {
     setInputsEnabled(true);
     abortController = null;
@@ -734,9 +744,10 @@ function queueTextForSpeech(chunk) {
     const cleaned = cleanTextForSpeech(sentence).trim();
     if (cleaned.length > 0) {
       ttsQueue.push(cleaned);
+      wakeQueuePump(); // Wake the queue processor if waiting
     }
   }
-  
+
   processQueue();
 }
 
@@ -744,6 +755,7 @@ function flushTtsBuffer() {
   if (ttsBuffer.trim().length > 2) {
     ttsQueue.push(cleanTextForSpeech(ttsBuffer.trim()));
     ttsBuffer = '';
+    wakeQueuePump(); // Wake the queue processor if waiting
     processQueue();
   }
 }
@@ -773,6 +785,16 @@ let prefetchSentence = null;
 
 let appendQueue = [];
 let appendInProgress = false;
+
+// Queue pump wake mechanism - event-driven instead of polling
+let queueWaiterResolve = null;
+
+function wakeQueuePump() {
+  if (queueWaiterResolve) {
+    queueWaiterResolve();
+    queueWaiterResolve = null;
+  }
+}
 
 function getMseMimeType() {
   if (!('MediaSource' in window)) return null;
@@ -991,7 +1013,13 @@ async function processQueue() {
 
     while (mySession === ttsSessionId) {
       if (!streamingSentence) {
-        if (ttsQueue.length === 0) break;
+        if (ttsQueue.length === 0) {
+          // If API stream is complete, we're done processing
+          if (apiStreamComplete) break;
+          // Otherwise wait for new sentences from the stream
+          await new Promise(r => { queueWaiterResolve = r; });
+          continue;
+        }
 
         const nextText = ttsQueue[0];
 
@@ -1115,6 +1143,8 @@ function stopSpeaking() {
 
   ttsQueue = [];
   ttsBuffer = '';
+  apiStreamComplete = true; // Mark stream as complete so queue loop exits
+  wakeQueuePump(); // Wake queue loop so it can exit
 
   if (window.speechSynthesis && window.speechSynthesis.speaking) {
     window.speechSynthesis.cancel();
