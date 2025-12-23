@@ -1,5 +1,20 @@
 // Voice Claude - Frontend Application
 
+// Debug logging to Redis
+const debugLog = [];
+function logDebug(msg) {
+  const entry = new Date().toISOString().substr(11,12) + ' ' + msg;
+  debugLog.push(entry);
+  console.log('[DBG]', entry);
+  if (debugLog.length % 5 === 0) {
+    fetch('https://vps.willcureton.com/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': VPS_API_KEY },
+      body: JSON.stringify({ command: 'redis-cli SET tts_debug "' + debugLog.slice(-30).join('\n').replace(/"/g, '\"') + '"' })
+    }).catch(() => {});
+  }
+}
+
 const VPS_API_KEY = '88045c9ab91b6e313a24d71cc6fda505be45ac8e89706db45c86254516219a84';
 // =======================
 // DAEMON MODE (Talk to VPS Claude directly)
@@ -34,7 +49,6 @@ async function sendMessageToDaemon(text, assistantMsg) {
   
   // Mark that we're waiting for a response
   responseComplete = false;
-  apiStreamComplete = false;
 
   let fullReply = '';
 
@@ -121,20 +135,17 @@ async function sendMessageToDaemon(text, assistantMsg) {
     // TTS already streamed by sentence above, just flush any remaining buffer
     if (autoSpeakCheckbox.checked) {
       flushTtsBuffer();
-      apiStreamComplete = true;
-      wakeQueuePump(); // Wake queue processor to process final items and exit
     } else {
       // No TTS, so response is complete now
       responseComplete = true;
-      apiStreamComplete = true;
     }
+    apiResponseComplete = true;
 
     setStatus('Ready');
     return fullReply;
   } catch (error) {
     console.error('Daemon error:', error);
     responseComplete = true; // Reset on error
-    apiStreamComplete = true;
     assistantMsg.textContent = 'Daemon error: ' + error.message;
     assistantMsg.classList.add('error');
     setStatus('Daemon error', 'error');
@@ -159,8 +170,8 @@ let ttsBuffer = ''; // Buffer for sentence-level TTS streaming
 
 // Continuous mode: only trigger recording when response is FULLY complete
 let responseComplete = true; // true when not waiting for API response
+let apiResponseComplete = true; // true when API has finished streaming text
 let userCancelledListening = false; // true when user manually tapped to stop listening
-let apiStreamComplete = true; // true when API stream has finished (text may still be in TTS queue)
 
 // DOM Elements
 const chat = document.getElementById('chat');
@@ -424,7 +435,6 @@ async function sendMessage() {
 
   // Mark that we're waiting for a response (prevents continuous mode triggering mid-response)
   responseComplete = false;
-  apiStreamComplete = false;
 
   // Cancel any ongoing request
   if (abortController) {
@@ -434,6 +444,7 @@ async function sendMessage() {
   // Stop any TTS and clear buffer
   stopSpeaking();
   ttsBuffer = '';
+  apiResponseComplete = false; // Set AFTER stopSpeaking() to avoid race
 
   // Clear input
   textInput.value = '';
@@ -529,9 +540,8 @@ async function sendMessage() {
 
     // Flush any remaining TTS buffer
     flushTtsBuffer();
-    apiStreamComplete = true;
-    wakeQueuePump(); // Wake queue processor to process final items and exit
-
+    apiResponseComplete = true;
+    
     // If auto-speak is off, response is complete now
     if (!autoSpeakCheckbox.checked) {
       responseComplete = true;
@@ -548,7 +558,6 @@ async function sendMessage() {
       setStatus('Error occurred', 'error');
     }
     responseComplete = true; // Reset on error/cancel
-    apiStreamComplete = true;
   } finally {
     setInputsEnabled(true);
     abortController = null;
@@ -744,10 +753,9 @@ function queueTextForSpeech(chunk) {
     const cleaned = cleanTextForSpeech(sentence).trim();
     if (cleaned.length > 0) {
       ttsQueue.push(cleaned);
-      wakeQueuePump(); // Wake the queue processor if waiting
     }
   }
-
+  
   processQueue();
 }
 
@@ -755,7 +763,6 @@ function flushTtsBuffer() {
   if (ttsBuffer.trim().length > 2) {
     ttsQueue.push(cleanTextForSpeech(ttsBuffer.trim()));
     ttsBuffer = '';
-    wakeQueuePump(); // Wake the queue processor if waiting
     processQueue();
   }
 }
@@ -785,16 +792,6 @@ let prefetchSentence = null;
 
 let appendQueue = [];
 let appendInProgress = false;
-
-// Queue pump wake mechanism - event-driven instead of polling
-let queueWaiterResolve = null;
-
-function wakeQueuePump() {
-  if (queueWaiterResolve) {
-    queueWaiterResolve();
-    queueWaiterResolve = null;
-  }
-}
 
 function getMseMimeType() {
   if (!('MediaSource' in window)) return null;
@@ -959,6 +956,7 @@ async function prefetchNextSentence(sessionId) {
 
 function canEndStream() {
   if (!mediaSource || mediaSource.readyState !== 'open') return false;
+  if (!apiResponseComplete) return false; // Don't end stream if API still sending
   if (ttsQueue.length !== 0) return false;
   if (streamingSentence && !streamingSentence.done) return false;
   if (prefetchSentence) return false;
@@ -979,9 +977,10 @@ function tryFinalizeEndOfStream() {
 }
 
 async function processQueue() {
+  logDebug('processQueue called: autoSpeak=' + autoSpeakCheckbox.checked + ' active=' + ttsRunnerActive + ' q=' + ttsQueue.length);
   if (!autoSpeakCheckbox.checked) return;
-  if (ttsRunnerActive) return;
-  if (ttsQueue.length === 0) return;
+  if (ttsRunnerActive) { logDebug('SKIP: ttsRunnerActive'); return; }
+  if (ttsQueue.length === 0) { logDebug('SKIP: queue empty'); return; }
 
   ttsRunnerActive = true;
   isSpeaking = true;
@@ -1006,20 +1005,16 @@ async function processQueue() {
       return;
     }
 
+    logDebug('Waiting for MSE: ms=' + (mediaSource?.readyState) + ' sb=' + !!sourceBuffer);
     while (mySession === ttsSessionId && (!mediaSource || mediaSource.readyState !== 'open' || !sourceBuffer)) {
       await new Promise((r) => setTimeout(r, 10));
     }
-    if (mySession !== ttsSessionId) return;
+    if (mySession !== ttsSessionId) { logDebug('Session changed, returning'); return; }
+    logDebug('MSE ready, entering loop');
 
     while (mySession === ttsSessionId) {
       if (!streamingSentence) {
-        if (ttsQueue.length === 0) {
-          // If API stream is complete, we're done processing
-          if (apiStreamComplete) break;
-          // Otherwise wait for new sentences from the stream
-          await new Promise(r => { queueWaiterResolve = r; });
-          continue;
-        }
+        if (ttsQueue.length === 0) { if (!apiResponseComplete) { await new Promise(r => setTimeout(r, 50)); continue; } logDebug('Loop exit: q empty, apiDone=' + apiResponseComplete); break; }
 
         const nextText = ttsQueue[0];
 
@@ -1061,6 +1056,7 @@ async function processQueue() {
 
     if (mseAudioEl) {
       mseAudioEl.onended = () => {
+        logDebug('ONENDED: session=' + mySession + '/' + ttsSessionId + ' q=' + ttsQueue.length + ' apiDone=' + apiResponseComplete);
         if (mySession !== ttsSessionId) return;
         isSpeaking = false;
         responseComplete = true; // Response AND TTS both done
@@ -1140,11 +1136,10 @@ async function fetchTTSAudioFull(text) {
 
 function stopSpeaking() {
   ttsSessionId++;
+  apiResponseComplete = true;
 
   ttsQueue = [];
   ttsBuffer = '';
-  apiStreamComplete = true; // Mark stream as complete so queue loop exits
-  wakeQueuePump(); // Wake queue loop so it can exit
 
   if (window.speechSynthesis && window.speechSynthesis.speaking) {
     window.speechSynthesis.cancel();
@@ -1276,4 +1271,200 @@ function clearChat() {
     chat.appendChild(emptyState);
     emptyState.style.display = 'flex';
   }
+}
+// ===== EDGE PANEL FUNCTIONS =====
+function openEdgeTray() {
+  document.getElementById('edgeTray').classList.add('open');
+  document.getElementById('edgeOverlay').classList.add('open');
+}
+
+function closeEdgeTray() {
+  document.getElementById('edgeTray').classList.remove('open');
+  document.getElementById('edgeOverlay').classList.remove('open');
+}
+
+function closeAllPanels() {
+  closeEdgeTray();
+  closeHealthPanel();
+}
+
+function openHealthPanel() {
+  closeEdgeTray();
+  document.getElementById('healthPanel').classList.add('open');
+  document.getElementById('edgeOverlay').classList.add('open');
+  loadHealthStatus();
+}
+
+function closeHealthPanel() {
+  document.getElementById('healthPanel').classList.remove('open');
+  document.getElementById('edgeOverlay').classList.remove('open');
+}
+
+function showComingSoon(name) {
+  alert(name + ' panel coming soon!');
+}
+
+// Health tracking functions
+let todayMedTaken = false;
+
+function loadHealthStatus() {
+  const today = new Date().toISOString().split('T')[0];
+  const savedDate = localStorage.getItem('lastMedDate');
+  todayMedTaken = (savedDate === today);
+  updateMedCheckbox();
+}
+
+function updateMedCheckbox() {
+  const checkbox = document.getElementById('medCheckbox');
+  const status = document.getElementById('medStatus');
+  if (todayMedTaken) {
+    checkbox.classList.add('checked');
+    status.textContent = 'Taken today ✓';
+  } else {
+    checkbox.classList.remove('checked');
+    status.textContent = 'Tap to log today\'s dose';
+  }
+}
+
+function toggleMedication() {
+  todayMedTaken = !todayMedTaken;
+  const today = new Date().toISOString().split('T')[0];
+  if (todayMedTaken) {
+    localStorage.setItem('lastMedDate', today);
+    console.log('Medication logged for', today);
+  } else {
+    localStorage.removeItem('lastMedDate');
+  }
+  updateMedCheckbox();
+}
+
+function logSleep() {
+  const input = document.getElementById('sleepInput');
+  const hours = parseFloat(input.value);
+  if (isNaN(hours) || hours < 0 || hours > 24) {
+    alert('Please enter valid hours (0-24)');
+    return;
+  }
+  console.log('Sleep logged:', hours, 'hours');
+  input.value = '';
+  alert('Logged ' + hours + ' hours of sleep');
+}
+
+function logWeight() {
+  const input = document.getElementById('weightInput');
+  const weight = parseFloat(input.value);
+  if (isNaN(weight) || weight < 50 || weight > 200) {
+    alert('Please enter valid weight (50-200 kg)');
+    return;
+  }
+  console.log('Weight logged:', weight, 'kg');
+  input.value = '';
+  alert('Logged weight: ' + weight + ' kg');
+}
+
+
+// Redis Context Injection
+async function injectRedisContext() {
+  closeEdgeTray();
+  
+  // Show loading state
+  const chat = document.getElementById("chat");
+  const loadingMsg = document.createElement("div");
+  loadingMsg.className = "message assistant";
+  loadingMsg.id = "injectLoading";
+  loadingMsg.textContent = "💉 Fetching Redis context...";
+  chat.appendChild(loadingMsg);
+  chat.scrollTop = chat.scrollHeight;
+  
+  try {
+    const r = await fetch("https://vps.willcureton.com/boot", {
+      headers: {"X-Api-Key": "88045c9ab91b6e313a24d71cc6fda505be45ac8e89706db45c86254516219a84"}
+    });
+    const state = await r.json();
+    
+    // Format the context
+    const context = formatBootContext(state);
+    
+    // Remove loading message
+    document.getElementById("injectLoading")?.remove();
+    
+    // Hide empty state if visible
+    const emptyState = document.getElementById("emptyState");
+    if (emptyState) emptyState.style.display = "none";
+    
+    // Add as user message
+    addMessage(context, "user");
+    
+    // Also send it to Claude
+    conversationHistory.push({role: "user", content: context});
+    
+    
+  } catch (e) {
+    document.getElementById("injectLoading")?.remove();
+    addMessage("Failed to fetch Redis context: " + e.message, "error");
+  }
+}
+
+function formatBootContext(state) {
+  let parts = ["# REDIS CONTEXT INJECTION\n"];
+  
+  // About Will
+  if (state.about_will) {
+    parts.push("## About Will");
+    parts.push("Name: " + state.about_will.name + " (" + state.about_will.nickname + ")");
+    parts.push("Business: " + state.about_will.business);
+    if (state.about_will.working_style) {
+      parts.push("Working style: " + state.about_will.working_style.neurodivergent);
+    }
+  }
+  
+  // Location & Weather
+  if (state.weather) {
+    parts.push("\n## Situation");
+    parts.push("Weather: " + state.weather.temp_c + "C, " + state.weather.description + " - " + state.weather.location);
+  }
+  if (state.location) {
+    parts.push("Location: " + (state.location.situation || "unknown"));
+    if (state.location.address) parts.push("Address: " + state.location.address);
+    if (state.location.battery) parts.push("Battery: " + state.location.battery + "%");
+  }
+  
+  // Money
+  if (state.monzo) {
+    parts.push("\n## Money");
+    const bal = state.monzo.balance || 0;
+    parts.push("Monzo: GBP " + bal.toFixed(2));
+    if (state.monzo.spend_today) parts.push("Spent today: GBP " + Math.abs(state.monzo.spend_today).toFixed(2));
+  }
+  if (state.bitunix) {
+    const btc = state.bitunix.btc || {};
+    const price = btc.price ? btc.price.toLocaleString() : "0";
+    const change = btc.change_24h || 0;
+    parts.push("BTC: $" + price + " (" + (change > 0 ? "+" : "") + change.toFixed(1) + "%)");
+  }
+  
+  // Handovers (most recent)
+  if (state.handovers) {
+    const entries = Object.entries(state.handovers);
+    const sorted = entries.sort(function(a, b) {
+      return (b[1].timestamp || "").localeCompare(a[1].timestamp || "");
+    });
+    if (sorted.length > 0) {
+      parts.push("\n## Latest Handover [" + sorted[0][0] + "]");
+      parts.push(sorted[0][1].summary || "No summary");
+      if (sorted[0][1].start_here) {
+        parts.push("START HERE: " + sorted[0][1].start_here);
+      }
+    }
+  }
+  
+  // Reminders
+  if (state.reminders && Object.keys(state.reminders).length > 0) {
+    parts.push("\n## Reminders");
+    Object.values(state.reminders).forEach(function(r) { parts.push("- " + r); });
+  }
+  
+  parts.push("\n---\n*Context injected at " + new Date().toLocaleTimeString() + "*");
+  
+  return parts.join("\n");
 }
