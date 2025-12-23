@@ -257,11 +257,52 @@ function isContinuousMode() {
   return checkbox ? checkbox.checked : false;
 }
 
+function toggleContinuousMode() {
+  const checkbox = document.getElementById('continuousMode');
+  const btn = document.getElementById('continuousModeBtn');
+  if (checkbox && btn) {
+    checkbox.checked = !checkbox.checked;
+    btn.classList.toggle('active', checkbox.checked);
+    localStorage.setItem('voiceClaude_continuous', checkbox.checked);
+  }
+}
+
+function toggleTapToSend() {
+  const checkbox = document.getElementById('tapToSendMode');
+  const btn = document.getElementById('tapToSendBtn');
+  if (checkbox && btn) {
+    checkbox.checked = !checkbox.checked;
+    btn.classList.toggle('active', checkbox.checked);
+    localStorage.setItem('voiceClaude_tapToSend', checkbox.checked);
+  }
+}
+
+function initModeButtons() {
+  // Restore continuous mode state
+  const savedContinuous = localStorage.getItem('voiceClaude_continuous');
+  const continuousCheckbox = document.getElementById('continuousMode');
+  const continuousBtn = document.getElementById('continuousModeBtn');
+  if (savedContinuous === 'true' && continuousCheckbox && continuousBtn) {
+    continuousCheckbox.checked = true;
+    continuousBtn.classList.add('active');
+  }
+  
+  // Restore tap-to-send state
+  const savedTapToSend = localStorage.getItem('voiceClaude_tapToSend');
+  const tapToSendCheckbox = document.getElementById('tapToSendMode');
+  const tapToSendBtn = document.getElementById('tapToSendBtn');
+  if (savedTapToSend === 'true' && tapToSendCheckbox && tapToSendBtn) {
+    tapToSendCheckbox.checked = true;
+    tapToSendBtn.classList.add('active');
+  }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   loadSettings();
   loadHistory();
   setupSpeechRecognition();
+  initModeButtons();
 
   // Enter key to send
   textInput.addEventListener('keypress', (e) => {
