@@ -158,6 +158,7 @@ async function sendMessageToDaemon(text, assistantMsg) {
 // State
 // =======================
 let isRecording = false;
+let tapToSendBuffer = ''; // Accumulated transcript for tap-to-send mode
 let recognition = null;
 let currentUtterance = null;
 let conversationHistory = [];
@@ -359,7 +360,14 @@ function setupSpeechRecognition() {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       transcript += event.results[i][0].transcript;
     }
-    textInput.value = transcript;
+    
+    // In tap-to-send mode, append to accumulated buffer
+    const tapToSend = document.getElementById('tapToSendMode');
+    if (tapToSend && tapToSend.checked && tapToSendBuffer) {
+      textInput.value = tapToSendBuffer + ' ' + transcript;
+    } else {
+      textInput.value = transcript;
+    }
   };
 
   recognition.onerror = (event) => {
@@ -375,11 +383,14 @@ function setupSpeechRecognition() {
       // Check if tap-to-send mode is enabled
       const tapToSend = document.getElementById('tapToSendMode');
       if (tapToSend && tapToSend.checked) {
+        // Save current transcript before restarting
+        tapToSendBuffer = textInput.value.trim();
         // Keep listening - restart recognition to accumulate more speech
         try {
           recognition.start();
         } catch (e) {
           // If start fails, fall back to normal behaviour
+          tapToSendBuffer = ''; // Clear buffer
           stopRecording();
           if (textInput.value.trim()) {
             sendMessage();
@@ -418,6 +429,7 @@ function startRecording() {
   if (!recognition) return;
 
   textInput.value = '';
+  tapToSendBuffer = ''; // Clear accumulated buffer for fresh start
   try {
     recognition.start();
   } catch (e) {
@@ -447,6 +459,9 @@ function stopRecording() {
 async function sendMessage() {
   const text = textInput.value.trim();
   if (!text) return;
+
+  // Clear tap-to-send buffer since we're sending
+  tapToSendBuffer = '';
 
   // Mark that we're waiting for a response (prevents continuous mode triggering mid-response)
   responseComplete = false;
