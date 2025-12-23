@@ -102,7 +102,12 @@ async function sendMessageToDaemon(text, assistantMsg) {
             // Text content
             if (data.type === 'text' && data.text) {
               fullReply += data.text;
-              assistantMsg.textContent = fullReply;
+              const textSpan = assistantMsg.querySelector('.message-text');
+              if (textSpan) {
+                textSpan.textContent = fullReply;
+              } else {
+                assistantMsg.textContent = fullReply;
+              }
               scrollToBottom();
               setStatus('💬 Responding...', 'active');
               // Stream TTS by sentence as chunks arrive
@@ -146,7 +151,12 @@ async function sendMessageToDaemon(text, assistantMsg) {
   } catch (error) {
     console.error('Daemon error:', error);
     responseComplete = true; // Reset on error
-    assistantMsg.textContent = 'Daemon error: ' + error.message;
+    const textSpan = assistantMsg.querySelector('.message-text');
+    if (textSpan) {
+      textSpan.textContent = 'Daemon error: ' + error.message;
+    } else {
+      assistantMsg.textContent = 'Daemon error: ' + error.message;
+    }
     assistantMsg.classList.add('error');
     setStatus('Daemon error', 'error');
     throw error;
@@ -274,6 +284,25 @@ function toggleTapToSend() {
     checkbox.checked = !checkbox.checked;
     btn.classList.toggle('active', checkbox.checked);
     localStorage.setItem('voiceClaude_tapToSend', checkbox.checked);
+  }
+}
+
+function toggleTextInput() {
+  const inputSection = document.getElementById('inputSection');
+  const modeLabel = document.getElementById('modeLabel');
+  if (inputSection) {
+    inputSection.classList.toggle('expanded');
+    // Swap label between type and voice
+    if (modeLabel) {
+      modeLabel.textContent = inputSection.classList.contains('expanded') ? 'voice' : 'type';
+    }
+    // Focus the text input when expanded
+    if (inputSection.classList.contains('expanded')) {
+      setTimeout(() => {
+        const textInput = document.getElementById('textInput');
+        if (textInput) textInput.focus();
+      }, 100);
+    }
   }
 }
 
@@ -583,7 +612,12 @@ async function sendMessage() {
 
             if (parsed.type === 'text') {
               fullResponse += parsed.content;
-              assistantMsg.textContent = fullResponse;
+              const textSpan = assistantMsg.querySelector('.message-text');
+              if (textSpan) {
+                textSpan.textContent = fullResponse;
+              } else {
+                assistantMsg.textContent = fullResponse;
+              }
               scrollToBottom();
               // Stream TTS by sentence as chunks arrive
               queueTextForSpeech(parsed.content);
@@ -624,7 +658,12 @@ async function sendMessage() {
       setStatus('Cancelled');
     } else {
       console.error('Error:', error);
-      assistantMsg.textContent = 'Error: ' + error.message;
+      const textSpan = assistantMsg.querySelector('.message-text');
+      if (textSpan) {
+        textSpan.textContent = 'Error: ' + error.message;
+      } else {
+        assistantMsg.textContent = 'Error: ' + error.message;
+      }
       assistantMsg.classList.add('error');
       setStatus('Error occurred', 'error');
     }
@@ -639,7 +678,16 @@ async function sendMessage() {
 function addMessage(content, role, streaming = false) {
   const msg = document.createElement('div');
   msg.className = `message ${role}${streaming ? ' streaming' : ''}`;
-  msg.textContent = content;
+  
+  // Wrap text in span for assistant messages (allows button to have different styling)
+  if (role === 'assistant') {
+    const textSpan = document.createElement('span');
+    textSpan.className = 'message-text';
+    textSpan.textContent = content;
+    msg.appendChild(textSpan);
+  } else {
+    msg.textContent = content;
+  }
   
   // Add replay button for assistant messages (non-streaming)
   if (role === 'assistant' && !streaming) {
@@ -653,16 +701,42 @@ function addMessage(content, role, streaming = false) {
 
 // Add replay button to a message
 function addReplayButton(msgElement) {
-  const btn = document.createElement('button');
-  btn.className = 'replay-btn';
-  btn.innerHTML = '<svg width="9" height="11" viewBox="0 0 9 11"><path d="M0 0 L9 5.5 L0 11 Z" fill="currentColor"/></svg>';
-  btn.title = 'Replay';
-  btn.dataset.playing = 'false';
-  btn.onclick = (e) => {
+  // Create actions wrapper
+  const actions = document.createElement('div');
+  actions.className = 'message-actions';
+  
+  // Play button
+  const playBtn = document.createElement('button');
+  playBtn.className = 'action-btn replay-btn';
+  playBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+  playBtn.title = 'Replay';
+  playBtn.dataset.playing = 'false';
+  playBtn.onclick = (e) => {
     e.stopPropagation();
-    replayMessage(msgElement, btn);
+    replayMessage(msgElement, playBtn);
   };
-  msgElement.appendChild(btn);
+  
+  // Flag button (placeholder)
+  const flagBtn = document.createElement('button');
+  flagBtn.className = 'action-btn flag-btn';
+  flagBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>';
+  flagBtn.title = 'Flag message (coming soon)';
+  flagBtn.dataset.flagged = 'false';
+  flagBtn.onclick = (e) => {
+    e.stopPropagation();
+    // Toggle flagged state visually
+    if (flagBtn.dataset.flagged === 'true') {
+      flagBtn.classList.remove('flagged');
+      flagBtn.dataset.flagged = 'false';
+    } else {
+      flagBtn.classList.add('flagged');
+      flagBtn.dataset.flagged = 'true';
+    }
+  };
+  
+  actions.appendChild(playBtn);
+  actions.appendChild(flagBtn);
+  msgElement.appendChild(actions);
 }
 
 // Replay a message's audio
@@ -676,7 +750,7 @@ function stopReplay() {
   }
   if (currentReplayBtn) {
     currentReplayBtn.classList.remove('playing');
-    currentReplayBtn.innerHTML = '<svg width="9" height="11" viewBox="0 0 9 11"><path d="M0 0 L9 5.5 L0 11 Z" fill="currentColor"/></svg>';
+    currentReplayBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
     currentReplayBtn.dataset.playing = 'false';
     currentReplayBtn = null;
   }
@@ -692,20 +766,25 @@ async function replayMessage(msgElement, btn) {
   // Stop any other playing audio
   stopReplay();
   
-  // Get text content (excluding the button)
+  // Get text content from message-text span or direct text nodes
   let text = '';
-  for (const node of msgElement.childNodes) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      text += node.textContent;
+  const textSpan = msgElement.querySelector('.message-text');
+  if (textSpan) {
+    text = textSpan.textContent.trim();
+  } else {
+    for (const node of msgElement.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        text += node.textContent;
+      }
     }
+    text = text.trim();
   }
-  text = text.trim();
   
   if (!text) return;
   
-  // Visual feedback - show X to stop
+  // Visual feedback - show stop icon in red
   btn.classList.add('playing');
-  btn.innerHTML = '<svg width="9" height="9" viewBox="0 0 9 9"><rect width="9" height="9" fill="currentColor"/></svg>';
+  btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14"/></svg>';
   btn.dataset.playing = 'true';
   currentReplayBtn = btn;
   
@@ -1131,419 +1210,4 @@ async function processQueue() {
         if (mySession !== ttsSessionId) return;
         isSpeaking = false;
         responseComplete = true; // Response AND TTS both done
-        userCancelledListening = false; // Reset manual cancel flag after response
-        if (!isRecording) {
-          setMicBarState('idle');
-          setTimeout(() => scrollToBottom(), 100);
-        }
-      };
-    }
-  } catch (e) {
-    console.error('MSE TTS error:', e);
-
-    try {
-      if (ttsQueue.length) {
-        const text = ttsQueue.shift();
-        fallbackBrowserTTS(text);
-      }
-    } catch (_) {}
-  } finally {
-    ttsRunnerActive = false;
-
-    if (autoSpeakCheckbox.checked && ttsQueue.length > 0 && ttsSessionId === mySession) {
-      setTimeout(() => processQueue(), 0);
-    } else {
-      const stillPlaying = mseAudioEl && !mseAudioEl.paused && !mseAudioEl.ended;
-      if (!stillPlaying && ttsQueue.length === 0) {
-        isSpeaking = false;
-        responseComplete = true; // Response AND TTS both done
-        userCancelledListening = false; // Reset manual cancel flag after response
-        if (!isRecording) {
-          setMicBarState('idle');
-          setTimeout(() => scrollToBottom(), 100);
-        }
-      }
-    }
-  }
-}
-
-function fallbackBrowserTTS(text) {
-  if (!('speechSynthesis' in window)) return;
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 1.15;
-  utterance.pitch = 1.0;
-  utterance.onend = () => processQueue();
-  utterance.onerror = () => processQueue();
-  window.speechSynthesis.speak(utterance);
-}
-
-function speak(text) {
-  if (!('speechSynthesis' in window)) return;
-  ttsQueue.push(cleanTextForSpeech(text));
-  processQueue();
-}
-
-async function fetchTTSAudioFull(text) {
-  const response = await fetch(VPS_TTS_URL_FULL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Api-Key': VPS_API_KEY
-    },
-    body: JSON.stringify({
-      text,
-      voice: TTS_VOICE,
-      rate: TTS_RATE,
-      pitch: TTS_PITCH
-    })
-  });
-
-  if (!response.ok) throw new Error(`TTS full failed: ${response.status}`);
-
-  const audioBlob = await response.blob();
-  const audioUrl = URL.createObjectURL(audioBlob);
-  return { url: audioUrl, audio: new Audio(audioUrl) };
-}
-
-function stopSpeaking() {
-  ttsSessionId++;
-  apiResponseComplete = true;
-
-  ttsQueue = [];
-  ttsBuffer = '';
-
-  if (window.speechSynthesis && window.speechSynthesis.speaking) {
-    window.speechSynthesis.cancel();
-  }
-
-  try { streamingSentence?.ctrl?.abort(); } catch (_) {}
-  try { prefetchSentence?.ctrl?.abort(); } catch (_) {}
-  streamingSentence = null;
-  prefetchSentence = null;
-
-  appendQueue = [];
-  appendInProgress = false;
-
-  if (mseAudioEl) {
-    try {
-      mseAudioEl.pause();
-    } catch (_) {}
-    try {
-      if (typeof mseAudioEl.src === 'string' && mseAudioEl.src.startsWith('blob:')) {
-        URL.revokeObjectURL(mseAudioEl.src);
-      }
-    } catch (_) {}
-    try {
-      mseAudioEl.removeAttribute('src');
-      mseAudioEl.load();
-    } catch (_) {}
-  }
-
-  mseAudioEl = null;
-  mediaSource = null;
-  sourceBuffer = null;
-
-  ttsRunnerActive = false;
-  isSpeaking = false;
-  isStoppingRequested = false;
-  if (!isRecording) setMicBarState('idle');
-}
-
-// =======================
-// UI Helpers
-// =======================
-function setStatus(text, type = '') {
-  status.textContent = text;
-  status.className = 'status-bar' + (type ? ' ' + type : '');
-}
-
-function setInputsEnabled(enabled) {
-  textInput.disabled = !enabled;
-  sendBtn.disabled = !enabled;
-  if (!enabled) setMicBarState('processing'); else if (!isRecording && !isSpeaking) setMicBarState('idle');
-}
-
-function scrollToBottom() {
-  setTimeout(() => {
-    chat.scrollTop = chat.scrollHeight;
-  }, 10);
-}
-
-// =======================
-// Settings
-// =======================
-function openSettings() {
-  settingsModal.classList.add('active');
-}
-
-function closeSettings() {
-  settingsModal.classList.remove('active');
-}
-
-function saveSettings() {
-  localStorage.setItem('voiceClaude_systemMessage', systemMessageInput.value);
-  localStorage.setItem('voiceClaude_autoSpeak', autoSpeakCheckbox.checked);
-  localStorage.setItem('voiceClaude_model', modelSelect.value);
-  const tapToSend = document.getElementById('tapToSendMode');
-  if (tapToSend) localStorage.setItem('voiceClaude_tapToSend', tapToSend.checked);
-  closeSettings();
-}
-
-function loadSettings() {
-  const savedSystemMessage = localStorage.getItem('voiceClaude_systemMessage');
-  const savedAutoSpeak = localStorage.getItem('voiceClaude_autoSpeak');
-  const savedModel = localStorage.getItem('voiceClaude_model');
-  const savedTapToSend = localStorage.getItem('voiceClaude_tapToSend');
-
-  if (savedSystemMessage) {
-    systemMessageInput.value = savedSystemMessage;
-  } else {
-    systemMessageInput.value = `You are a helpful voice assistant. Keep responses concise and conversational.
-Spell out numbers when speaking (say "twenty-three" not "23").
-Avoid emojis, special characters, and markdown formatting.
-Be direct and natural - this is a voice conversation.`;
-  }
-
-  if (savedAutoSpeak !== null) {
-    autoSpeakCheckbox.checked = savedAutoSpeak === 'true';
-  }
-
-  if (savedModel) {
-    modelSelect.value = savedModel;
-  }
-
-  const tapToSend = document.getElementById('tapToSendMode');
-  if (tapToSend && savedTapToSend !== null) {
-    tapToSend.checked = savedTapToSend === 'true';
-  }
-}
-
-// =======================
-// Chat History
-// =======================
-function saveHistory() {
-  localStorage.setItem('voiceClaude_history', JSON.stringify(conversationHistory));
-}
-
-function loadHistory() {
-  const saved = localStorage.getItem('voiceClaude_history');
-  if (saved) {
-    try {
-      conversationHistory = JSON.parse(saved);
-      if (conversationHistory.length > 0) {
-        emptyState.style.display = 'none';
-        conversationHistory.forEach((msg) => {
-          addMessage(msg.content, msg.role);
-        });
-      }
-    } catch (e) {
-      conversationHistory = [];
-    }
-  }
-}
-
-function clearChat() {
-  if (confirm('Clear all messages?')) {
-    conversationHistory = [];
-    localStorage.removeItem('voiceClaude_history');
-    chat.innerHTML = '';
-    chat.appendChild(emptyState);
-    emptyState.style.display = 'flex';
-  }
-}
-// ===== EDGE PANEL FUNCTIONS =====
-function openEdgeTray() {
-  document.getElementById('edgeTray').classList.add('open');
-  document.getElementById('edgeOverlay').classList.add('open');
-}
-
-function closeEdgeTray() {
-  document.getElementById('edgeTray').classList.remove('open');
-  document.getElementById('edgeOverlay').classList.remove('open');
-}
-
-function closeAllPanels() {
-  closeEdgeTray();
-  closeHealthPanel();
-}
-
-function openHealthPanel() {
-  closeEdgeTray();
-  document.getElementById('healthPanel').classList.add('open');
-  document.getElementById('edgeOverlay').classList.add('open');
-  loadHealthStatus();
-}
-
-function closeHealthPanel() {
-  document.getElementById('healthPanel').classList.remove('open');
-  document.getElementById('edgeOverlay').classList.remove('open');
-}
-
-function showComingSoon(name) {
-  alert(name + ' panel coming soon!');
-}
-
-// Health tracking functions
-let todayMedTaken = false;
-
-function loadHealthStatus() {
-  const today = new Date().toISOString().split('T')[0];
-  const savedDate = localStorage.getItem('lastMedDate');
-  todayMedTaken = (savedDate === today);
-  updateMedCheckbox();
-}
-
-function updateMedCheckbox() {
-  const checkbox = document.getElementById('medCheckbox');
-  const status = document.getElementById('medStatus');
-  if (todayMedTaken) {
-    checkbox.classList.add('checked');
-    status.textContent = 'Taken today ✓';
-  } else {
-    checkbox.classList.remove('checked');
-    status.textContent = 'Tap to log today\'s dose';
-  }
-}
-
-function toggleMedication() {
-  todayMedTaken = !todayMedTaken;
-  const today = new Date().toISOString().split('T')[0];
-  if (todayMedTaken) {
-    localStorage.setItem('lastMedDate', today);
-    console.log('Medication logged for', today);
-  } else {
-    localStorage.removeItem('lastMedDate');
-  }
-  updateMedCheckbox();
-}
-
-function logSleep() {
-  const input = document.getElementById('sleepInput');
-  const hours = parseFloat(input.value);
-  if (isNaN(hours) || hours < 0 || hours > 24) {
-    alert('Please enter valid hours (0-24)');
-    return;
-  }
-  console.log('Sleep logged:', hours, 'hours');
-  input.value = '';
-  alert('Logged ' + hours + ' hours of sleep');
-}
-
-function logWeight() {
-  const input = document.getElementById('weightInput');
-  const weight = parseFloat(input.value);
-  if (isNaN(weight) || weight < 50 || weight > 200) {
-    alert('Please enter valid weight (50-200 kg)');
-    return;
-  }
-  console.log('Weight logged:', weight, 'kg');
-  input.value = '';
-  alert('Logged weight: ' + weight + ' kg');
-}
-
-
-// Redis Context Injection
-async function injectRedisContext() {
-  closeEdgeTray();
-  
-  // Show loading state
-  const chat = document.getElementById("chat");
-  const loadingMsg = document.createElement("div");
-  loadingMsg.className = "message assistant";
-  loadingMsg.id = "injectLoading";
-  loadingMsg.textContent = "💉 Fetching Redis context...";
-  chat.appendChild(loadingMsg);
-  chat.scrollTop = chat.scrollHeight;
-  
-  try {
-    const r = await fetch("https://vps.willcureton.com/boot", {
-      headers: {"X-Api-Key": "88045c9ab91b6e313a24d71cc6fda505be45ac8e89706db45c86254516219a84"}
-    });
-    const state = await r.json();
-    
-    // Format the context
-    const context = formatBootContext(state);
-    
-    // Remove loading message
-    document.getElementById("injectLoading")?.remove();
-    
-    // Hide empty state if visible
-    const emptyState = document.getElementById("emptyState");
-    if (emptyState) emptyState.style.display = "none";
-    
-    // Add as user message
-    addMessage(context, "user");
-    
-    // Also send it to Claude
-    conversationHistory.push({role: "user", content: context});
-    
-    
-  } catch (e) {
-    document.getElementById("injectLoading")?.remove();
-    addMessage("Failed to fetch Redis context: " + e.message, "error");
-  }
-}
-
-function formatBootContext(state) {
-  let parts = ["# REDIS CONTEXT INJECTION\n"];
-  
-  // About Will
-  if (state.about_will) {
-    parts.push("## About Will");
-    parts.push("Name: " + state.about_will.name + " (" + state.about_will.nickname + ")");
-    parts.push("Business: " + state.about_will.business);
-    if (state.about_will.working_style) {
-      parts.push("Working style: " + state.about_will.working_style.neurodivergent);
-    }
-  }
-  
-  // Location & Weather
-  if (state.weather) {
-    parts.push("\n## Situation");
-    parts.push("Weather: " + state.weather.temp_c + "C, " + state.weather.description + " - " + state.weather.location);
-  }
-  if (state.location) {
-    parts.push("Location: " + (state.location.situation || "unknown"));
-    if (state.location.address) parts.push("Address: " + state.location.address);
-    if (state.location.battery) parts.push("Battery: " + state.location.battery + "%");
-  }
-  
-  // Money
-  if (state.monzo) {
-    parts.push("\n## Money");
-    const bal = state.monzo.balance || 0;
-    parts.push("Monzo: GBP " + bal.toFixed(2));
-    if (state.monzo.spend_today) parts.push("Spent today: GBP " + Math.abs(state.monzo.spend_today).toFixed(2));
-  }
-  if (state.bitunix) {
-    const btc = state.bitunix.btc || {};
-    const price = btc.price ? btc.price.toLocaleString() : "0";
-    const change = btc.change_24h || 0;
-    parts.push("BTC: $" + price + " (" + (change > 0 ? "+" : "") + change.toFixed(1) + "%)");
-  }
-  
-  // Handovers (most recent)
-  if (state.handovers) {
-    const entries = Object.entries(state.handovers);
-    const sorted = entries.sort(function(a, b) {
-      return (b[1].timestamp || "").localeCompare(a[1].timestamp || "");
-    });
-    if (sorted.length > 0) {
-      parts.push("\n## Latest Handover [" + sorted[0][0] + "]");
-      parts.push(sorted[0][1].summary || "No summary");
-      if (sorted[0][1].start_here) {
-        parts.push("START HERE: " + sorted[0][1].start_here);
-      }
-    }
-  }
-  
-  // Reminders
-  if (state.reminders && Object.keys(state.reminders).length > 0) {
-    parts.push("\n## Reminders");
-    Object.values(state.reminders).forEach(function(r) { parts.push("- " + r); });
-  }
-  
-  parts.push("\n---\n*Context injected at " + new Date().toLocaleTimeString() + "*");
-  
-  return parts.join("\n");
-}
+        userCancelledListening = false; // 
