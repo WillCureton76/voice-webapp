@@ -74,6 +74,51 @@
     .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #999; text-align: center; padding: 40px; }
     .empty-state svg { width: 64px; height: 64px; margin-bottom: 16px; opacity: 0.5; }
     .empty-state p { font-size: 16px; }
+/* ===== EDGE PANEL STYLES ===== */
+    .edge-handle { position: fixed; right: 0; top: 50%; transform: translateY(-50%); width: 24px; height: 80px; background: linear-gradient(135deg, #F0686C, #e85558); border-radius: 12px 0 0 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 50; box-shadow: -2px 0 8px rgba(0,0,0,0.15); transition: width 0.2s; }
+    .edge-handle:hover { width: 28px; }
+    .edge-handle span { color: white; font-size: 18px; font-weight: bold; }
+    .edge-tray { position: fixed; right: -200px; top: 0; bottom: 0; width: 200px; background: #ffffff; box-shadow: -4px 0 20px rgba(0,0,0,0.2); z-index: 60; transition: right 0.3s ease; display: flex; flex-direction: column; }
+    .edge-tray.open { right: 0; }
+    .edge-tray-header { padding: 16px; background: #f3f1ee; border-bottom: 1px solid #d0d0d0; display: flex; justify-content: space-between; align-items: center; }
+    .edge-tray-header h3 { font-size: 16px; color: #333; margin: 0; }
+    .edge-tray-close { background: none; border: none; font-size: 24px; color: #666; cursor: pointer; padding: 0; line-height: 1; }
+    .edge-tray-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 16px; }
+    .edge-tool { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px 8px; background: #f3f1ee; border-radius: 12px; cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
+    .edge-tool:hover { background: #e8e6e3; border-color: #d0d0d0; }
+    .edge-tool:active { transform: scale(0.95); }
+    .edge-tool .icon { font-size: 28px; margin-bottom: 6px; }
+    .edge-tool .label { font-size: 11px; color: #666; text-align: center; }
+    .edge-tool.health .icon { color: #ef4444; }
+    .edge-tool.money .icon { color: #22c55e; }
+    .edge-tool.tasks .icon { color: #3b82f6; }
+    .edge-tool.location .icon { color: #f59e0b; }
+    .edge-tool.inject .icon { color: #dc2626; }
+    .edge-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 55; display: none; }
+    .edge-overlay.open { display: block; }
+    .health-panel { position: fixed; right: -300px; top: 0; bottom: 0; width: 300px; background: #ffffff; box-shadow: -4px 0 20px rgba(0,0,0,0.2); z-index: 70; transition: right 0.3s ease; display: flex; flex-direction: column; }
+    .health-panel.open { right: 0; }
+    .health-panel-header { padding: 16px; background: linear-gradient(135deg, #fef2f2, #fee2e2); border-bottom: 1px solid #fecaca; display: flex; justify-content: space-between; align-items: center; }
+    .health-panel-header h3 { font-size: 18px; color: #dc2626; margin: 0; display: flex; align-items: center; gap: 8px; }
+    .health-panel-content { flex: 1; overflow-y: auto; padding: 16px; }
+    .health-item { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+    .health-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .health-item-title { font-weight: 600; color: #333; display: flex; align-items: center; gap: 8px; }
+    .health-checkbox { width: 32px; height: 32px; border-radius: 50%; border: 2px solid #d1d5db; background: white; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .health-checkbox:hover { border-color: #22c55e; }
+    .health-checkbox.checked { background: #22c55e; border-color: #22c55e; }
+    .health-checkbox.checked::after { content: "✓"; color: white; font-size: 18px; font-weight: bold; }
+    .health-input-row { display: flex; gap: 8px; align-items: center; }
+    .health-input { flex: 1; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 16px; background: white; }
+    .health-input:focus { outline: none; border-color: #F0686C; }
+    .health-unit { color: #666; font-size: 14px; min-width: 30px; }
+    .health-submit { padding: 10px 16px; background: #22c55e; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; }
+    .health-submit:hover { background: #16a34a; }
+    .health-submit:disabled { background: #d1d5db; cursor: not-allowed; }
+    .health-streak { background: linear-gradient(135deg, #fef3c7, #fde68a); border: 1px solid #fcd34d; border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 12px; }
+    .health-streak .number { font-size: 32px; font-weight: bold; color: #d97706; }
+    .health-streak .label { font-size: 12px; color: #92400e; }
+
   </style>
 </head>
 <body>
@@ -83,6 +128,10 @@
       <label class="continuous-toggle">
         <input type="checkbox" id="continuousMode">
         <span class="toggle-label">Continuous</span>
+      </label>
+      <label class="continuous-toggle" title="Keep listening through pauses until you tap">
+        <input type="checkbox" id="tapToSendMode">
+        <span class="toggle-label">Tap to send</span>
       </label>
       <button class="header-btn" onclick="openSettings()">Settings</button>
     </div>
@@ -141,6 +190,79 @@
       </div>
     </div>
   </div>
+  <!-- Edge Panel System -->
+  <div class="edge-handle" onclick="openEdgeTray()">
+    <span>⋮</span>
+  </div>
+  <div class="edge-overlay" id="edgeOverlay" onclick="closeAllPanels()"></div>
+  <div class="edge-tray" id="edgeTray">
+    <div class="edge-tray-header">
+      <h3>Tools</h3>
+      <button class="edge-tray-close" onclick="closeEdgeTray()">&times;</button>
+    </div>
+    <div class="edge-tray-grid">
+      <div class="edge-tool health" onclick="openHealthPanel()">
+        <span class="icon">💊</span>
+        <span class="label">Health</span>
+      </div>
+      <div class="edge-tool money" onclick="showComingSoon('Money')">
+        <span class="icon">💰</span>
+        <span class="label">Money</span>
+      </div>
+      <div class="edge-tool tasks" onclick="showComingSoon('Tasks')">
+        <span class="icon">✅</span>
+        <span class="label">Tasks</span>
+      </div>
+      <div class="edge-tool inject" onclick="injectRedisContext()">
+        <span class="icon">💉</span>
+        <span class="label">Inject</span>
+      </div>
+      <div class="edge-tool location" onclick="showComingSoon('Location')">
+        <span class="icon">📍</span>
+        <span class="label">Location</span>
+      </div>
+    </div>
+  </div>
+  <div class="health-panel" id="healthPanel">
+    <div class="health-panel-header">
+      <h3>💊 Health</h3>
+      <button class="edge-tray-close" onclick="closeHealthPanel()">&times;</button>
+    </div>
+    <div class="health-panel-content">
+      <div class="health-streak">
+        <div class="number" id="medStreak">-</div>
+        <div class="label">day streak 🔥</div>
+      </div>
+      <div class="health-item">
+        <div class="health-item-header">
+          <span class="health-item-title">💊 Enalapril 5mg</span>
+          <div class="health-checkbox" id="medCheckbox" onclick="toggleMedication()"></div>
+        </div>
+        <div style="font-size: 12px; color: #666;" id="medStatus">Tap to log today's dose</div>
+      </div>
+      <div class="health-item">
+        <div class="health-item-header">
+          <span class="health-item-title">😴 Sleep</span>
+        </div>
+        <div class="health-input-row">
+          <input type="number" class="health-input" id="sleepInput" placeholder="Hours" step="0.5" min="0" max="24">
+          <span class="health-unit">hrs</span>
+          <button class="health-submit" onclick="logSleep()">Log</button>
+        </div>
+      </div>
+      <div class="health-item">
+        <div class="health-item-header">
+          <span class="health-item-title">⚖️ Weight</span>
+        </div>
+        <div class="health-input-row">
+          <input type="number" class="health-input" id="weightInput" placeholder="Weight" step="0.1" min="50" max="200">
+          <span class="health-unit">kg</span>
+          <button class="health-submit" onclick="logWeight()">Log</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>
