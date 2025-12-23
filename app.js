@@ -372,10 +372,25 @@ function setupSpeechRecognition() {
 
   recognition.onend = () => {
     if (isRecording) {
-      // Auto-send when recognition ends (user tapped to stop)
-      stopRecording();
-      if (textInput.value.trim()) {
-        sendMessage();
+      // Check if tap-to-send mode is enabled
+      const tapToSend = document.getElementById('tapToSendMode');
+      if (tapToSend && tapToSend.checked) {
+        // Keep listening - restart recognition to accumulate more speech
+        try {
+          recognition.start();
+        } catch (e) {
+          // If start fails, fall back to normal behaviour
+          stopRecording();
+          if (textInput.value.trim()) {
+            sendMessage();
+          }
+        }
+      } else {
+        // Normal behaviour: auto-send when recognition ends
+        stopRecording();
+        if (textInput.value.trim()) {
+          sendMessage();
+        }
       }
     }
   };
@@ -1213,6 +1228,8 @@ function saveSettings() {
   localStorage.setItem('voiceClaude_systemMessage', systemMessageInput.value);
   localStorage.setItem('voiceClaude_autoSpeak', autoSpeakCheckbox.checked);
   localStorage.setItem('voiceClaude_model', modelSelect.value);
+  const tapToSend = document.getElementById('tapToSendMode');
+  if (tapToSend) localStorage.setItem('voiceClaude_tapToSend', tapToSend.checked);
   closeSettings();
 }
 
@@ -1220,6 +1237,7 @@ function loadSettings() {
   const savedSystemMessage = localStorage.getItem('voiceClaude_systemMessage');
   const savedAutoSpeak = localStorage.getItem('voiceClaude_autoSpeak');
   const savedModel = localStorage.getItem('voiceClaude_model');
+  const savedTapToSend = localStorage.getItem('voiceClaude_tapToSend');
 
   if (savedSystemMessage) {
     systemMessageInput.value = savedSystemMessage;
@@ -1236,6 +1254,11 @@ Be direct and natural - this is a voice conversation.`;
 
   if (savedModel) {
     modelSelect.value = savedModel;
+  }
+
+  const tapToSend = document.getElementById('tapToSendMode');
+  if (tapToSend && savedTapToSend !== null) {
+    tapToSend.checked = savedTapToSend === 'true';
   }
 }
 
