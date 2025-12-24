@@ -1,6 +1,84 @@
 // Voice Claude - Frontend Application
 
 const VPS_API_KEY = '88045c9ab91b6e313a24d71cc6fda505be45ac8e89706db45c86254516219a84';
+
+// =======================
+// LOCATION INDICATOR
+// =======================
+let currentLocation = null;
+let locationTooltipTimeout = null;
+
+async function fetchLocation() {
+  try {
+    const response = await fetch('https://vps.willcureton.com/boot', {
+      headers: { 'X-Api-Key': VPS_API_KEY }
+    });
+    const data = await response.json();
+    
+    if (data.location) {
+      currentLocation = data.location;
+      updateLocationIndicator();
+    }
+  } catch (err) {
+    console.error('Failed to fetch location:', err);
+  }
+}
+
+function updateLocationIndicator() {
+  const indicator = document.getElementById('locationIndicator');
+  const tooltip = document.getElementById('locationTooltip');
+  
+  if (!indicator || !tooltip) return;
+  
+  if (!currentLocation || !currentLocation.updated_at) {
+    indicator.className = 'location-indicator stale';
+    tooltip.textContent = 'Location unavailable';
+    return;
+  }
+  
+  // Check if location is fresh (within last 5 minutes)
+  const updatedAt = new Date(currentLocation.updated_at);
+  const now = new Date();
+  const ageMinutes = (now - updatedAt) / 1000 / 60;
+  
+  if (ageMinutes > 5) {
+    indicator.className = 'location-indicator stale';
+  } else if (currentLocation.velocity && currentLocation.velocity > 5) {
+    indicator.className = 'location-indicator fresh moving';
+  } else {
+    indicator.className = 'location-indicator fresh';
+  }
+  
+  // Build tooltip text
+  let tooltipText = currentLocation.situation || currentLocation.address || 'Location available';
+  if (currentLocation.velocity && currentLocation.velocity > 5) {
+    tooltipText += ` • ${Math.round(currentLocation.velocity)} km/h ${currentLocation.cardinal || ''}`;
+  }
+  tooltip.textContent = tooltipText;
+}
+
+function showLocationTooltip() {
+  const tooltip = document.getElementById('locationTooltip');
+  if (!tooltip) return;
+  
+  if (locationTooltipTimeout) {
+    clearTimeout(locationTooltipTimeout);
+  }
+  
+  tooltip.classList.add('visible');
+  
+  locationTooltipTimeout = setTimeout(() => {
+    tooltip.classList.remove('visible');
+  }, 3000);
+  
+  // Refresh location data
+  fetchLocation();
+}
+
+// Fetch location on load and every 60 seconds
+fetchLocation();
+setInterval(fetchLocation, 60000);
+
 // =======================
 // DAEMON MODE (Talk to VPS Claude directly)
 // =======================
